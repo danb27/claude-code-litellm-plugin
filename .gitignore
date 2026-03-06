@@ -1,3 +1,4 @@
 # Added by goreleaser init:
 dist/
 .DS_Store
+claude-code-litellm-plugin
