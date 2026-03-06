@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+// Version is set at build time via -ldflags="-X main.Version=vX.Y.Z"
+var Version = "dev"
+
+// GitHub repo for update checks
+const GitHubRepo = "stvnksslr/claude-code-litellm-plugin"
+
 // ANSI color codes
 const (
 	ColorGreen  = "\x1b[32m"
@@ -22,11 +28,13 @@ const (
 
 // Cache configuration
 const (
-	CacheTTLMs       = 30_000 // 30 seconds in milliseconds
-	HTTPTimeout      = 10 * time.Second
-	MaxRetries       = 3
-	InitialBackoffMs = 1_000          // 1 second
-	CooldownMs       = 5 * 60 * 1_000 // 5 minutes in milliseconds
+	CacheTTLMs         = 30_000 // 30 seconds in milliseconds
+	HTTPTimeout        = 10 * time.Second
+	MaxRetries         = 3
+	InitialBackoffMs   = 1_000           // 1 second
+	CooldownMs         = 5 * 60 * 1_000  // 5 minutes in milliseconds
+	UpdateCheckTTLMs   = 60 * 60 * 1_000 // 1 hour in milliseconds
+	UpdateCheckTimeout = 5 * time.Second
 )
 
 // Cache for budget info
@@ -37,6 +45,13 @@ var (
 	cacheMutex       sync.Mutex
 )
 
+// Cache for update check
+var (
+	cachedLatestVersion  string
+	updateCacheTimestamp int64
+	updateMutex          sync.Mutex
+)
+
 // resetCache clears all cache state (exported for testing)
 func resetCache() {
 	cacheMutex.Lock()
@@ -44,6 +59,14 @@ func resetCache() {
 	cachedBudgetInfo = nil
 	cacheTimestamp = 0
 	cooldownUntil = 0
+}
+
+// resetUpdateCache clears the update check cache (for testing)
+func resetUpdateCache() {
+	updateMutex.Lock()
+	defer updateMutex.Unlock()
+	cachedLatestVersion = ""
+	updateCacheTimestamp = 0
 }
 
 // KeyInfoResponse represents the API response structure
@@ -57,6 +80,87 @@ type KeyInfo struct {
 	MaxBudget      *float64 `json:"max_budget"`
 	BudgetResetAt  *string  `json:"budget_reset_at"`
 	BudgetDuration *string  `json:"budget_duration"`
+}
+
+// GitHubRelease represents the GitHub releases API response
+type GitHubRelease struct {
+	TagName string `json:"tag_name"`
+}
+
+// fetchLatestVersion calls the GitHub releases API to get the latest release tag
+func fetchLatestVersion() string {
+	url := "https://api.github.com/repos/" + GitHubRepo + "/releases/latest"
+	client := &http.Client{Timeout: UpdateCheckTimeout}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "claude-code-litellm-plugin/"+Version)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	var release GitHubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return ""
+	}
+	return release.TagName
+}
+
+// getLatestVersion returns the latest GitHub release tag, using a 1-hour cache
+func getLatestVersion() string {
+	updateMutex.Lock()
+	defer updateMutex.Unlock()
+
+	now := time.Now().UnixMilli()
+	if cachedLatestVersion != "" && (now-updateCacheTimestamp) < UpdateCheckTTLMs {
+		return cachedLatestVersion
+	}
+
+	latest := fetchLatestVersion()
+	if latest != "" {
+		cachedLatestVersion = latest
+		updateCacheTimestamp = now
+	}
+	return cachedLatestVersion
+}
+
+// semverGreater returns true if version a is greater than version b.
+// Both should be in "major.minor.patch" format (leading 'v' stripped).
+func semverGreater(a, b string) bool {
+	parse := func(v string) (int, int, int) {
+		var major, minor, patch int
+		_, _ = fmt.Sscanf(v, "%d.%d.%d", &major, &minor, &patch)
+		return major, minor, patch
+	}
+	am, an, ap := parse(a)
+	bm, bn, bp := parse(b)
+	if am != bm {
+		return am > bm
+	}
+	if an != bn {
+		return an > bn
+	}
+	return ap > bp
+}
+
+// isUpdateAvailable returns true if latest is a newer semver than current.
+func isUpdateAvailable(current, latest string) bool {
+	if current == "dev" || latest == "" {
+		return false
+	}
+	c := strings.TrimPrefix(current, "v")
+	l := strings.TrimPrefix(latest, "v")
+	return l != "" && semverGreater(l, c)
 }
 
 // getEnvWithFallback returns the first non-empty environment variable value
@@ -319,8 +423,9 @@ func formatTimeUntilReset(resetAt *string, budgetDuration *string) (string, stri
 	return "", ""
 }
 
-// formatStatusLine formats the budget info as a colored status line
-func formatStatusLine(info *KeyInfo) string {
+// formatStatusLine formats the budget info as a colored status line.
+// latestVersion is the latest GitHub release tag (empty string to skip update notice).
+func formatStatusLine(info *KeyInfo, latestVersion string) string {
 	spend := 0.0
 	if info.Spend != nil {
 		spend = *info.Spend
@@ -360,7 +465,12 @@ func formatStatusLine(info *KeyInfo) string {
 		}
 	}
 
-	return fmt.Sprintf("%sLiteLLM: %s%s%s%s", color, budgetStr, percentStr, ColorReset, resetStr)
+	updateStr := ""
+	if isUpdateAvailable(Version, latestVersion) {
+		updateStr = fmt.Sprintf(" %s| update: %s%s", ColorYellow, latestVersion, ColorReset)
+	}
+
+	return fmt.Sprintf("%sLiteLLM: %s%s%s%s%s", color, budgetStr, percentStr, ColorReset, resetStr, updateStr)
 }
 
 // formatError formats an error message with red color
@@ -407,5 +517,6 @@ func main() {
 		return
 	}
 
-	fmt.Println(formatStatusLine(info))
+	latestVersion := getLatestVersion()
+	fmt.Println(formatStatusLine(info, latestVersion))
 }
