@@ -36,7 +36,7 @@ func ansiToSpans(s string) string {
 	for i, part := range parts {
 		if part != "" {
 			escaped := strings.ReplaceAll(strings.ReplaceAll(part, "&", "&amp;"), "<", "&lt;")
-			buf.WriteString(fmt.Sprintf(`<tspan fill="%s">%s</tspan>`, color, escaped))
+			fmt.Fprintf(&buf, `<tspan fill="%s">%s</tspan>`, color, escaped)
 		}
 		if i < len(codes) {
 			if c, ok := ansiToSVGColor[codes[i]]; ok {
@@ -101,24 +101,24 @@ func TestGenerateExamples(t *testing.T) {
 	height := padY + statusHeight + sectionGap + gridHeight + padY
 
 	var svg strings.Builder
-	svg.WriteString(fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" font-family="monospace" font-size="14">`, width, height))
-	svg.WriteString(fmt.Sprintf(`<rect width="%d" height="%d" rx="8" fill="#1e1e2e"/>`, width, height))
+	fmt.Fprintf(&svg, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" font-family="monospace" font-size="14">`, width, height)
+	fmt.Fprintf(&svg, `<rect width="%d" height="%d" rx="8" fill="#1e1e2e"/>`, width, height)
 
 	// --- Render status line examples ---
 	for i, ex := range examples {
 		baseY := padY + i*statusRowHeight
 
 		if i > 0 {
-			svg.WriteString(fmt.Sprintf(`<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#374151" stroke-width="1"/>`,
-				padX, baseY, width-padX, baseY))
+			fmt.Fprintf(&svg, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#374151" stroke-width="1"/>`,
+				padX, baseY, width-padX, baseY)
 		}
 
-		svg.WriteString(fmt.Sprintf(`<text x="%d" y="%d" fill="#9ca3af" font-size="12">%s</text>`,
-			padX, baseY+statusLabelHeight, ex.label))
+		fmt.Fprintf(&svg, `<text x="%d" y="%d" fill="#9ca3af" font-size="12">%s</text>`,
+			padX, baseY+statusLabelHeight, ex.label)
 
 		line := formatStatusLine(ex.info, "")
-		svg.WriteString(fmt.Sprintf(`<text x="%d" y="%d">%s</text>`,
-			padX, baseY+statusLabelHeight+statusLineHeight, ansiToSpans(line)))
+		fmt.Fprintf(&svg, `<text x="%d" y="%d">%s</text>`,
+			padX, baseY+statusLabelHeight+statusLineHeight, ansiToSpans(line))
 	}
 
 	// --- Render 3x3 grid ---
@@ -154,43 +154,43 @@ func TestGenerateExamples(t *testing.T) {
 
 	gridY := padY + statusHeight + sectionGap
 
-	svg.WriteString(fmt.Sprintf(`<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#374151" stroke-width="1"/>`,
-		padX, gridY, width-padX, gridY))
+	fmt.Fprintf(&svg, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#374151" stroke-width="1"/>`,
+		padX, gridY, width-padX, gridY)
 
 	for j, label := range colLabels {
 		x := padX + rowLabelWidth + j*colWidth + colWidth/2
-		svg.WriteString(fmt.Sprintf(`<text x="%d" y="%d" fill="#9ca3af" text-anchor="middle" font-size="12">%s</text>`,
-			x, gridY+18, label))
+		fmt.Fprintf(&svg, `<text x="%d" y="%d" fill="#9ca3af" text-anchor="middle" font-size="12">%s</text>`,
+			x, gridY+18, label)
 	}
-	svg.WriteString(fmt.Sprintf(`<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#374151" stroke-width="1"/>`,
-		padX, gridY+headerHeight, width-padX, gridY+headerHeight))
+	fmt.Fprintf(&svg, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#374151" stroke-width="1"/>`,
+		padX, gridY+headerHeight, width-padX, gridY+headerHeight)
 
 	for i := 0; i < 3; i++ {
 		baseY := gridY + headerHeight + i*rowHeight
 		textY := baseY + rowHeight/2 + 5
 
 		if i > 0 {
-			svg.WriteString(fmt.Sprintf(`<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#374151" stroke-width="1"/>`,
-				padX, baseY, width-padX, baseY))
+			fmt.Fprintf(&svg, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#374151" stroke-width="1"/>`,
+				padX, baseY, width-padX, baseY)
 		}
 
-		svg.WriteString(fmt.Sprintf(`<text x="%d" y="%d" fill="#9ca3af" font-size="12">%s</text>`,
-			padX, textY, rowLabels[i]))
+		fmt.Fprintf(&svg, `<text x="%d" y="%d" fill="#9ca3af" font-size="12">%s</text>`,
+			padX, textY, rowLabels[i])
 
 		for j := 0; j < 3; j++ {
 			c := grid[i][j]
 			cellX := padX + rowLabelWidth + j*colWidth
 
-			svg.WriteString(fmt.Sprintf(`<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#374151" stroke-width="1"/>`,
-				cellX, gridY+headerHeight, cellX, gridY+gridHeight))
+			fmt.Fprintf(&svg, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#374151" stroke-width="1"/>`,
+				cellX, gridY+headerHeight, cellX, gridY+gridHeight)
 
 			if !c.possible {
-				svg.WriteString(fmt.Sprintf(`<text x="%d" y="%d" fill="#4b5563" text-anchor="middle">—</text>`,
-					cellX+colWidth/2, textY))
+				fmt.Fprintf(&svg, `<text x="%d" y="%d" fill="#4b5563" text-anchor="middle">—</text>`,
+					cellX+colWidth/2, textY)
 			} else {
 				bar := renderProgressBar(c.percent, c.elapsedFraction, true)
-				svg.WriteString(fmt.Sprintf(`<text x="%d" y="%d">%s</text>`,
-					cellX+8, textY, ansiToSpans(bar)))
+				fmt.Fprintf(&svg, `<text x="%d" y="%d">%s</text>`,
+					cellX+8, textY, ansiToSpans(bar))
 			}
 		}
 	}
